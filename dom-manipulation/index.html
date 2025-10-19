@@ -1,47 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dynamic Quote Generator</title>
-  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <h1>Dynamic Quote Generator</h1>
 
-  <div id="quoteDisplay"></div>
-  <button id="newQuote">Show New Quote</button>
 
-  <!-- Added category dropdown and import/export buttons -->
+  <div id="quoteDisplay"></div>
+
+
+  <select id="categoryFilter" onchange="filterQuotes()">
+    <option value="all">All Categories</option>
+  </select>
+
   <div id="controls">
-    <select id="categorySelect" aria-label="Select category"></select>
+    <button id="newQuote">Show New Quote</button>
     <button id="exportQuotes">Export Quotes</button>
     <button id="importQuotes">Import Quotes</button>
   </div>
 
-  <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+  
+  <input type="file" id="importFile" accept=".json,application/json" style="display:none" />
+
+
+  <div id="addQuoteForm"></div>
 
   <script src="script.js"></script>
-  <script>
-    // Connect visible Import/Export buttons to script.js functions
-    document.addEventListener('DOMContentLoaded', function() {
-      const importBtn = document.getElementById('importQuotes');
-      const exportBtn = document.getElementById('exportQuotes');
-      const importFile = document.getElementById('importFile');
-
-      if (importBtn && importFile) {
-        importBtn.addEventListener('click', () => importFile.click());
-        importFile.addEventListener('change', (e) => {
-          if (typeof importFromJsonFile === 'function') importFromJsonFile(e);
-        });
-      }
-
-      if (exportBtn) {
-        exportBtn.addEventListener('click', () => {
-          if (typeof exportToJson === 'function') exportToJson();
-        });
-      }
-    });
-  </script>
 </body>
 </html>
