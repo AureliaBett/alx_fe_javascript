@@ -1,326 +1,389 @@
 
-const QUOTES_KEY = 'quotes_data_sync';
-const SELECTED_FILTER_KEY = 'selected_category';
-const LAST_SYNC_KEY = 'last_sync_ts';
+// script.js — Dynamic Quote Generator with server sync simulation & basic conflict handling
 
-const SERVER_URL = 'https://jsonplaceholder.typicode.com/posts'; // mock server
-const SYNC_INTERVAL_MS = 30_000; // 30 seconds
+// Storage keys
+const QUOTES_KEY = "quotes_data_sync";
+const FILTER_KEY = "selected_filter";
+const LAST_SYNC_KEY = "last_sync_ts";
 
-/* ========== Local state ========== */
-// quotes should be an array of objects with at least: { id, text, category, updatedAt }
+// Local quotes (start dataset). Each quote should have a unique id property.
+// Local ids start with "loc-" ; server ids start with "srv-"
 let quotes = JSON.parse(localStorage.getItem(QUOTES_KEY)) || [
-  { id: 'loc-1', text: 'this one', category: 1, updatedAt: Date.now() },
-  { id: 'loc-2', text: 'this two', category: 2, updatedAt: Date.now() },
-  { id: 'loc-3', text: 'this three', category: 3, updatedAt: Date.now() },
-  { id: 'loc-4', text: 'this four', category: 4, updatedAt: Date.now() },
-  { id: 'loc-5', text: 'this five', category: 5, updatedAt: Date.now() }
+  { id: "loc-1", text: "this one", category: 1, updatedAt: Date.now() },
+  { id: "loc-2", text: "this two", category: 2, updatedAt: Date.now() },
+  { id: "loc-3", text: "this three", category: 3, updatedAt: Date.now() },
+  { id: "loc-4", text: "this four", category: 4, updatedAt: Date.now() },
+  { id: "loc-5", text: "this five", category: 5, updatedAt: Date.now() },
 ];
 
-let latestConflicts = []; // stored conflicts from last merge for UI
+// Sync configuration
+const SERVER_URL = "https://jsonplaceholder.typicode.com/posts"; // mock source
+const SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
 
-/* ========== Utility helpers ========== */
+// UI refs (cached after DOM ready)
+let quoteDisplay, categoryFilter, importFile, syncBanner, syncMessage, viewConflictsBtn, dismissBannerBtn, conflictModal, conflictList;
+
 function saveQuotes() {
   localStorage.setItem(QUOTES_KEY, JSON.stringify(quotes));
 }
-function loadQuotes() {
+
+function loadQuotesFromStorage() {
   const raw = localStorage.getItem(QUOTES_KEY);
   if (!raw) return;
-  try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) quotes = parsed; } catch (e) { console.error('loadQuotes parse error', e); }
-}
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
-}
-function ensureBanner() {
-  let banner = document.getElementById('syncBanner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'syncBanner';
-    banner.style = 'display:none;padding:10px;border:1px solid #ccc;margin:8px 0;background:#fffbe6;';
-    banner.innerHTML = '<span id="syncMessage"></span> <button id="viewConflictsBtn" style="margin-left:8px;display:none">View Conflicts</button> <button id="dismissBannerBtn" style="margin-left:8px">Dismiss</button>';
-    const container = document.body.firstElementChild || document.body;
-    container.insertAdjacentElement('afterend', banner);
-    document.getElementById('dismissBannerBtn').addEventListener('click', () => banner.style.display = 'none');
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) quotes = parsed;
+  } catch (e) {
+    console.error("Failed to parse stored quotes:", e);
   }
-  return banner;
-}
-function ensureConflictModal() {
-  let modal = document.getElementById('conflictModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'conflictModal';
-    modal.style = 'display:none;position:fixed;left:8%;right:8%;top:8%;bottom:8%;background:white;border:1px solid #aaa;padding:12px;overflow:auto;z-index:9999;';
-    modal.innerHTML = `
-      <h3>Sync Conflicts</h3>
-      <div id="conflictList" style="max-height:60%;overflow:auto;margin-bottom:12px"></div>
-      <button id="acceptAllServer">Accept All Server</button>
-      <button id="keepAllLocal" style="margin-left:8px">Keep All Local</button>
-      <button id="closeConflictModal" style="float:right">Close</button>
-    `;
-    document.body.appendChild(modal);
-    document.getElementById('closeConflictModal').addEventListener('click', () => modal.style.display = 'none');
-    document.getElementById('acceptAllServer').addEventListener('click', () => {
-      // server already applied during merge, so just close and notify
-      alert('Server changes have been kept (server wins).');
-      modal.style.display = 'none';
-    });
-    document.getElementById('keepAllLocal').addEventListener('click', () => {
-      // revert conflicts to local saved copies
-      latestConflicts.forEach(c => {
-        const idx = quotes.findIndex(q => q.id === c.id);
-        if (idx !== -1) quotes[idx] = c.local;
-      });
-      saveQuotes();
-      populateCategories(); showRandomQuote();
-      alert('Local versions restored for conflicts.');
-      modal.style.display = 'none';
-    });
-  }
-  return modal;
 }
 
-/* ========== Display & categories ========== */
+/* -----------------------
+   Category + display logic
+   ----------------------- */
+
 function populateCategories() {
-  const select = document.getElementById('categoryFilter');
-  if (!select) return;
-  const cats = Array.from(new Set(quotes.map(q=>q.category))).sort((a,b)=> (a>b?1:(a<b?-1:0)));
-  const prev = localStorage.getItem(SELECTED_FILTER_KEY) || 'all';
-  select.innerHTML = '<option value="all">All Categories</option>';
-  cats.forEach(c=>{
-    const opt = document.createElement('option'); opt.value = String(c); opt.textContent = String(c);
-    select.appendChild(opt);
+  if (!categoryFilter) categoryFilter = document.getElementById("categoryFilter");
+  if (!categoryFilter) return;
+  const unique = [...new Set(quotes.map(q => q.category))];
+  const prev = localStorage.getItem(FILTER_KEY) || "all";
+  categoryFilter.innerHTML = '<option value="all">All Categories</option>';
+  unique.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = String(c);
+    opt.textContent = String(c);
+    categoryFilter.appendChild(opt);
   });
-  if ([...select.options].some(o=>o.value===prev)) select.value = prev; else select.value = 'all';
+  if ([...categoryFilter.options].some(o => o.value === prev)) categoryFilter.value = prev;
+  else categoryFilter.value = "all";
 }
-function showRandomQuote() {
-  const display = document.getElementById('quoteDisplay');
-  if (!display) return;
-  const filterSelect = document.getElementById('categoryFilter');
-  const sel = filterSelect ? filterSelect.value : (localStorage.getItem(SELECTED_FILTER_KEY) || 'all');
-  const pool = (sel && sel !== 'all') ? quotes.filter(q=>String(q.category)===String(sel)) : quotes.slice();
-  if (!pool.length) { display.innerHTML = '<em>No quotes in this category.</em>'; return; }
-  const q = pool[Math.floor(Math.random()*pool.length)];
-  display.innerHTML = `"${escapeHtml(q.text)}" <br><small>(${escapeHtml(String(q.category))})</small>`;
-}
+
 function filterQuotes() {
-  const select = document.getElementById('categoryFilter');
-  if (!select) return;
-  localStorage.setItem(SELECTED_FILTER_KEY, select.value);
+  const selected = categoryFilter ? categoryFilter.value : (localStorage.getItem(FILTER_KEY) || "all");
+  localStorage.setItem(FILTER_KEY, selected);
   showRandomQuote();
 }
 
-/* ========== Server interactions ========== */
+function showRandomQuote() {
+  if (!quoteDisplay) quoteDisplay = document.getElementById("quoteDisplay");
+  if (!categoryFilter) categoryFilter = document.getElementById("categoryFilter");
+  const selected = (categoryFilter && categoryFilter.value) ? categoryFilter.value : (localStorage.getItem(FILTER_KEY) || "all");
+  const pool = selected !== "all" ? quotes.filter(q => String(q.category) === String(selected)) : quotes.slice();
+  if (!pool.length) {
+    quoteDisplay.innerHTML = `<em>No quotes in this category.</em>`;
+    return;
+  }
+  const q = pool[Math.floor(Math.random() * pool.length)];
+  quoteDisplay.innerHTML = `"${escapeHtml(q.text)}" <br><small>(${escapeHtml(String(q.category))})</small>`;
+}
+
+function escapeHtml(s) {
+  return ("" + s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));
+}
+
+/* -----------------------
+   Add / Import / Export
+   ----------------------- */
+
+function createAddQuoteForm() {
+  const container = document.getElementById("addQuoteForm");
+  if (!container) return;
+  container.innerHTML = "";
+  const textInput = document.createElement("input");
+  textInput.id = "newQuoteText";
+  textInput.placeholder = "Enter a new quote";
+  const categoryInput = document.createElement("input");
+  categoryInput.id = "newQuoteCategory";
+  categoryInput.placeholder = "Enter quote category";
+  const addBtn = document.createElement("button");
+  addBtn.textContent = "Add Quote";
+  addBtn.addEventListener("click", () => {
+    const text = (textInput.value || "").trim();
+    let category = (categoryInput.value || "").trim();
+    if (!text || !category) return alert("Enter both quote and category");
+    if (!isNaN(category)) category = Number(category);
+    const id = "loc-" + (Date.now().toString(36) + "-" + Math.floor(Math.random()*1000));
+    const newQ = { id, text, category, updatedAt: Date.now() };
+    quotes.push(newQ);
+    saveQuotes();
+    populateCategories();
+    categoryFilter.value = String(category);
+    localStorage.setItem(FILTER_KEY, String(category));
+    showRandomQuote();
+    textInput.value = "";
+    categoryInput.value = "";
+  });
+  container.appendChild(textInput);
+  container.appendChild(categoryInput);
+  container.appendChild(addBtn);
+}
+
+function exportToJson() {
+  const blob = new Blob([JSON.stringify(quotes, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "quotes.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importFromJsonFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) throw new Error("JSON must be an array");
+      // Normalize imported items: ensure id exists (create server-style ids if missing)
+      const normalized = imported.map((it, idx) => {
+        const base = { text: String(it.text || ""), category: it.category ?? it.cat ?? "imported", updatedAt: Date.now() };
+        if (it.id) base.id = it.id;
+        else base.id = "srv-imp-" + (Date.now().toString(36) + "-" + idx);
+        return base;
+      });
+      quotes.push(...normalized);
+      saveQuotes();
+      populateCategories();
+      showRandomQuote();
+      alert("Imported " + normalized.length + " quotes");
+    } catch (err) {
+      console.error("Import failed", err);
+      alert("Import failed: " + err.message);
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* -----------------------
+   Server sync simulation
+   ----------------------- */
 
 /**
- * Required function name: fetchQuotesFromServer
- * Fetch posts from mock server and map to quotes shape (server IDs prefixed).
+ * Fetch server quotes from a mock API and map them into our quote shape.
+ * We use JSONPlaceholder posts: map -> { id: 'srv-{id}', text: title, category: userId }
  */
-async function fetchQuotesFromServer() {
+async function fetchServerQuotes() {
   try {
-    const res = await fetch(`${SERVER_URL}?_limit=20`);
-    if (!res.ok) throw new Error('Network error ' + res.status);
+    const res = await fetch(SERVER_URL + "?_limit=20"); // limit to 20 items
+    if (!res.ok) throw new Error("Network error: " + res.status);
     const data = await res.json();
-    // Map to our shape: { id, text, category, updatedAt }
-    return data.map(p => ({ id: 'srv-' + p.id, text: p.title, category: p.userId, updatedAt: Date.now() }));
+    // Map posts to our quote shape
+    const serverQuotes = data.map(post => ({
+      id: "srv-" + post.id,
+      text: post.title,
+      category: post.userId,
+      updatedAt: Date.now()
+    }));
+    return serverQuotes;
   } catch (err) {
-    console.error('fetchQuotesFromServer failed', err);
+    console.error("Failed to fetch server quotes:", err);
     return null;
   }
 }
 
 /**
- * New required function: syncQuotes
- * - Fetches server data and merges into local quotes
- * - Server wins on conflicts; conflicts recorded to `latestConflicts` and user notified
+ * Merge server data into local 'quotes' array.
+ * Strategy: server wins on conflicts (same id but different text/category).
+ * - If server has a quote id we don't have locally -> add it.
+ * - If server has same id but different content -> it's a conflict: replace local with server (server wins) but record conflict to show UI.
  */
-async function syncQuotes(showNotification=true) {
-  ensureBanner(); ensureConflictModal();
-  const serverQuotes = await fetchQuotesFromServer();
-  if (!serverQuotes) {
-    if (showNotification) showBanner('Sync failed: network error', false);
-    return;
-  }
-
-  // Merge algorithm: server wins for same id; add missing server items.
-  const byId = new Map(quotes.map(q => [q.id, q]));
+function mergeServerData(serverQuotes) {
+  if (!Array.isArray(serverQuotes)) return { added:0, updated:0, conflicts:[] };
+  const localById = new Map(quotes.map(q => [q.id, q]));
   const conflicts = [];
   let added = 0, updated = 0;
 
-  for (const s of serverQuotes) {
-    const local = byId.get(s.id);
+  serverQuotes.forEach(sq => {
+    const local = localById.get(sq.id);
     if (!local) {
-      quotes.push(s); byId.set(s.id, s); added++;
+      // new server item -> add
+      quotes.push(sq);
+      added++;
     } else {
-      // Compare content; if different, record conflict and replace with server
-      if (local.text !== s.text || String(local.category) !== String(s.category)) {
-        conflicts.push({ id: s.id, local: {...local}, server: {...s} });
+      // exists locally -> compare
+      if (local.text !== sq.text || String(local.category) !== String(sq.category)) {
+        // conflict detected — server takes precedence, but save conflict info for UI
+        conflicts.push({ id: sq.id, local: {...local}, server: {...sq} });
+        // replace local with server version
         const idx = quotes.findIndex(q => q.id === local.id);
-        if (idx !== -1) { quotes[idx] = s; updated++; }
+        if (idx !== -1) {
+          quotes[idx] = sq;
+          updated++;
+        }
       }
+      // else identical -> no-op
     }
-  }
+  });
 
-  // Optionally: server deletion detection could be implemented (not done here).
-
+  // Optionally, you might want to detect items that exist locally but were deleted on server. This example leaves them.
   saveQuotes();
-  latestConflicts = conflicts;
-  populateCategories();
-  if (added || updated) showRandomQuote();
-
-  // <-- Inserted console log required by validator:
-  console.log("Quotes synced with server!");
-
-  if (conflicts.length) {
-    showBanner(`Sync complete: ${added} added, ${updated} updated. ${conflicts.length} conflicts (server kept).`, true);
-  } else if (showNotification) {
-    showBanner(`Sync complete: ${added} added, ${updated} updated. No conflicts.`, false);
-  }
-  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+  return { added, updated, conflicts };
 }
 
 /**
- * Also provide a function to POST a new quote to the server (simulate push)
- * This includes method: 'POST' and headers: {'Content-Type': 'application/json'}
+ * Perform a sync: fetch server quotes and merge.
+ * If conflicts are found, keep server versions (server wins) but notify the user and allow manual inspection.
  */
-async function pushQuoteToServer(quote) {
-  try {
-    const res = await fetch(SERVER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(quote)
-    });
-    if (!res.ok) throw new Error('POST failed ' + res.status);
-    const created = await res.json();
-    // Simulate server-assigned id
-    // (In a real API you'd use created.id — here JSONPlaceholder returns an id).
-    return { success: true, created };
-  } catch (err) {
-    console.error('pushQuoteToServer failed', err);
-    return { success: false, error: err };
+async function performSync(showNotification=true) {
+  const serverData = await fetchServerQuotes();
+  if (!serverData) {
+    if (showNotification) showBanner("Sync failed (network).", false);
+    return;
+  }
+  const result = mergeServerData(serverData);
+  localStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
+  populateCategories();
+  if (result.added || result.updated) showRandomQuote();
+  if (result.conflicts && result.conflicts.length) {
+    // notify user and allow them to open conflict modal
+    showBanner(`Sync finished: ${result.added} added, ${result.updated} updated. ${result.conflicts.length} conflicts resolved (server won).`, true, result.conflicts);
+  } else if (showNotification) {
+    showBanner(`Sync finished: ${result.added} added, ${result.updated} updated. No conflicts.`, false);
   }
 }
 
-/* ========== Notification & conflict UI ========== */
-function showBanner(message, hasConflicts=false) {
-  const banner = ensureBanner();
-  const msg = document.getElementById('syncMessage');
-  const viewBtn = document.getElementById('viewConflictsBtn');
-  msg.textContent = message;
-  viewBtn.style.display = hasConflicts ? 'inline-block' : 'none';
-  banner.style.display = 'block';
-  viewBtn.onclick = () => openConflictModal();
-}
-function openConflictModal() {
-  const modal = ensureConflictModal();
-  const list = modal.querySelector('#conflictList');
-  list.innerHTML = '';
-  if (!latestConflicts.length) {
-    list.textContent = 'No conflicts.';
-  } else {
-    latestConflicts.forEach(c => {
-      const wrapper = document.createElement('div');
-      wrapper.style = 'padding:8px;border-bottom:1px solid #eee;margin-bottom:6px';
-      wrapper.innerHTML = `<strong>ID:</strong> ${escapeHtml(c.id)}<br>
-        <strong>Local:</strong> ${escapeHtml(c.local.text)} (${escapeHtml(String(c.local.category))})<br>
-        <strong>Server:</strong> ${escapeHtml(c.server.text)} (${escapeHtml(String(c.server.category))})<br/>`;
-      const keepLocal = document.createElement('button'); keepLocal.textContent = 'Keep Local';
-      const keepServer = document.createElement('button'); keepServer.textContent = 'Keep Server';
-      keepLocal.style.marginRight = '8px';
-      keepLocal.onclick = () => {
-        const idx = quotes.findIndex(q=>q.id===c.id);
-        if (idx !== -1) { quotes[idx] = c.local; saveQuotes(); populateCategories(); showRandomQuote(); wrapper.style.opacity = '0.5'; }
-      };
-      keepServer.onclick = () => {
-        const idx = quotes.findIndex(q=>q.id===c.id);
-        if (idx !== -1) { quotes[idx] = c.server; saveQuotes(); populateCategories(); showRandomQuote(); wrapper.style.opacity = '0.5'; }
-      };
-      wrapper.appendChild(keepLocal); wrapper.appendChild(keepServer);
-      list.appendChild(wrapper);
-    });
-  }
-  modal.style.display = 'block';
+/* -----------------------
+   UI: banner + conflict modal
+   ----------------------- */
+
+function showBanner(message, hasConflicts=false, conflicts=[]) {
+  if (!syncBanner) syncBanner = document.getElementById("syncBanner");
+  if (!syncBanner) return;
+  syncMessage = document.getElementById("syncMessage");
+  viewConflictsBtn = document.getElementById("viewConflictsBtn");
+  dismissBannerBtn = document.getElementById("dismissBannerBtn");
+
+  syncMessage.textContent = message;
+  syncBanner.style.display = "block";
+  viewConflictsBtn.style.display = hasConflicts ? "inline-block" : "none";
+
+  // attach handler to open modal with conflicts if any
+  viewConflictsBtn.onclick = () => {
+    openConflictModal(conflicts);
+  };
+  dismissBannerBtn.onclick = () => {
+    syncBanner.style.display = "none";
+  };
 }
 
-/* ========== Wiring & auto sync loop ========== */
-function wireUp() {
-  // wire up basic UI if present
-  const newBtn = document.getElementById('newQuote');
-  if (newBtn) newBtn.addEventListener('click', showRandomQuote);
+function openConflictModal(conflicts) {
+  if (!conflictModal) conflictModal = document.getElementById("conflictModal");
+  if (!conflictList) conflictList = document.getElementById("conflictList");
+  if (!conflictModal || !conflictList) return;
 
-  const select = document.getElementById('categoryFilter');
-  if (select) select.addEventListener('change', filterQuotes);
-
-  const exportBtn = document.getElementById('exportQuotes');
-  if (exportBtn) exportBtn.addEventListener('click', ()=> {
-    const blob = new Blob([JSON.stringify(quotes, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'quotes.json'; document.body.appendChild(a); a.click(); a.remove();
+  conflictList.innerHTML = "";
+  conflicts.forEach(c => {
+    const wrapper = document.createElement("div");
+    wrapper.style.borderBottom = "1px solid #eee";
+    wrapper.style.padding = "8px 0";
+    wrapper.innerHTML = `<strong>ID:</strong> ${escapeHtml(c.id)}<br/>
+      <strong>Local:</strong> ${escapeHtml(c.local.text)} (${escapeHtml(String(c.local.category))})<br/>
+      <strong>Server:</strong> ${escapeHtml(c.server.text)} (${escapeHtml(String(c.server.category))})`;
+    // add per-conflict buttons to pick one
+    const keepLocalBtn = document.createElement("button"); keepLocalBtn.textContent = "Keep Local";
+    const keepServerBtn = document.createElement("button"); keepServerBtn.textContent = "Keep Server";
+    keepLocalBtn.style.marginRight = "8px";
+    keepLocalBtn.onclick = () => {
+      // revert server overwrite: replace the quote in local storage with local version
+      const idx = quotes.findIndex(q => q.id === c.id);
+      if (idx !== -1) {
+        quotes[idx] = c.local;
+        saveQuotes();
+        populateCategories();
+        showRandomQuote();
+        wrapper.style.opacity = "0.5";
+      }
+    };
+    keepServerBtn.onclick = () => {
+      // ensure server version is present (already was set during merge, but keep for idempotency)
+      const idx = quotes.findIndex(q => q.id === c.id);
+      if (idx !== -1) {
+        quotes[idx] = c.server;
+        saveQuotes();
+        populateCategories();
+        showRandomQuote();
+        wrapper.style.opacity = "0.5";
+      }
+    };
+    wrapper.appendChild(keepLocalBtn);
+    wrapper.appendChild(keepServerBtn);
+    conflictList.appendChild(wrapper);
   });
 
-  const importFile = document.getElementById('importFile');
-  const importBtn = document.getElementById('importQuotes');
-  if (importBtn && importFile) {
-    importBtn.addEventListener('click', () => importFile.click());
-    importFile.addEventListener('change', function(e) {
-      const file = e.target.files && e.target.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        try {
-          const imported = JSON.parse(evt.target.result);
-          if (!Array.isArray(imported)) throw new Error('Invalid JSON: expected array');
-          // normalize and add ids if missing
-          const normalized = imported.map((it, i) => {
-            return { id: it.id || ('srv-imp-' + (Date.now().toString(36) + '-' + i)), text: it.text || '', category: it.category ?? it.cat ?? 'imported', updatedAt: Date.now() };
-          });
-          quotes.push(...normalized); saveQuotes(); populateCategories(); showRandomQuote(); alert('Imported ' + normalized.length + ' quotes');
-        } catch (err) { alert('Import error: ' + err.message); }
-      };
-      reader.readAsText(file);
-      e.target.value = '';
+  // wire modal-level buttons
+  document.getElementById("acceptAllServer").onclick = () => {
+    // already applied server wins during merge; just close modal
+    alert("Server changes already applied.");
+    closeConflictModal();
+  };
+  document.getElementById("rejectAllServer").onclick = () => {
+    // revert all conflicts to their local versions
+    conflicts.forEach(c => {
+      const idx = quotes.findIndex(q => q.id === c.id);
+      if (idx !== -1) quotes[idx] = c.local;
     });
-  }
+    saveQuotes();
+    populateCategories();
+    showRandomQuote();
+    alert("Local versions restored for conflicts.");
+    closeConflictModal();
+  };
+  document.getElementById("closeConflictModal").onclick = closeConflictModal;
 
-  // add-quote inline form (if #addQuoteForm is present)
-  const addArea = document.getElementById('addQuoteForm');
-  if (addArea && addArea.children.length===0) {
-    const t = document.createElement('input'); t.id='newQuoteText'; t.placeholder='Enter quote';
-    const c = document.createElement('input'); c.id='newQuoteCategory'; c.placeholder='Enter category';
-    const addBtn = document.createElement('button'); addBtn.textContent='Add Quote';
-    addBtn.addEventListener('click', () => {
-      const text = (document.getElementById('newQuoteText').value||'').trim();
-      let category = (document.getElementById('newQuoteCategory').value||'').trim();
-      if (!text || !category) return alert('Enter both');
-      if (!isNaN(category)) category = Number(category);
-      const id = 'loc-' + (Date.now().toString(36) + '-' + Math.floor(Math.random()*1000));
-      quotes.push({ id, text, category, updatedAt: Date.now() });
-      saveQuotes(); populateCategories(); document.getElementById('newQuoteText').value=''; document.getElementById('newQuoteCategory').value=''; showRandomQuote();
-      // push to server asynchronously (best-effort)
-      pushQuoteToServer({ text, category }).then(res => { if (!res.success) console.warn('Push failed', res.error); });
-    });
-    addArea.appendChild(t); addArea.appendChild(c); addArea.appendChild(addBtn);
-  }
+  conflictModal.style.display = "block";
+}
+
+function closeConflictModal() {
+  if (!conflictModal) conflictModal = document.getElementById("conflictModal");
+  if (conflictModal) conflictModal.style.display = "none";
+}
+
+/* -----------------------
+   Wiring & auto-sync loop
+   ----------------------- */
+
+function wireUpUI() {
+  quoteDisplay = document.getElementById("quoteDisplay");
+  categoryFilter = document.getElementById("categoryFilter");
+  importFile = document.getElementById("importFile");
+  syncBanner = document.getElementById("syncBanner");
+  conflictModal = document.getElementById("conflictModal");
+  conflictList = document.getElementById("conflictList");
+
+  document.getElementById("newQuote").addEventListener("click", showRandomQuote);
+  document.getElementById("exportQuotes").addEventListener("click", exportToJson);
+  document.getElementById("importQuotes").addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", importFromJsonFile);
+  document.getElementById("syncNow").addEventListener("click", () => performSync(true));
+  document.getElementById("viewConflictsBtn")?.addEventListener("click", () => {}); // placeholder
 }
 
 async function init() {
-  loadQuotes();
-  wireUp();
+  wireUpUI();
+  loadQuotesFromStorage();
   populateCategories();
-  // restore previously selected filter if present
-  const sel = localStorage.getItem(SELECTED_FILTER_KEY);
-  if (sel) {
-    const s = document.getElementById('categoryFilter'); if (s) s.value = sel;
-  }
+  createAddQuoteForm();
+  // restore last selected filter
+  const last = localStorage.getItem(FILTER_KEY) || "all";
+  if (categoryFilter) categoryFilter.value = last;
   showRandomQuote();
-  // initial sync without popup
-  await syncQuotes(false);
+
+  // initial sync
+  await performSync(false);
+
   // periodic sync loop
-  setInterval(() => syncQuotes(true), SYNC_INTERVAL_MS);
+  setInterval(() => performSync(true), SYNC_INTERVAL_MS);
 }
 
-/* expose helper functions globally (optional, for console/testing) */
-window.fetchQuotesFromServer = fetchQuotesFromServer;
-window.syncQuotes = syncQuotes;
-window.pushQuoteToServer = pushQuoteToServer;
-window.showRandomQuote = showRandomQuote;
-window.filterQuotes = filterQuotes;
-
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+// Init
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
