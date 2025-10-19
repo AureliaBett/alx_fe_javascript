@@ -1,33 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dynamic Quote Generator</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dynamic Quote Generator — Sync Demo</title>
 </head>
 <body>
-  <h1>Dynamic Quote Generator</h1>
+  <h1>Dynamic Quote Generator — Sync Demo</h1>
 
+  <!-- Notification banner (hidden by default) -->
+  <div id="syncBanner" style="display:none; padding:12px; border:1px solid #ccc; margin-bottom:12px;">
+    <span id="syncMessage"></span>
+    <button id="viewConflictsBtn" style="margin-left:8px;">View Conflicts</button>
+    <button id="dismissBannerBtn" style="margin-left:8px;">Dismiss</button>
+  </div>
 
-  <div id="quoteDisplay"></div>
+  <!-- Quote display -->
+  <div id="quoteDisplay" aria-live="polite" style="min-height:60px; padding:8px; border:1px solid #eee;"></div>
 
+  <!-- Filter and control UI -->
+  <div id="controls" style="margin-top:12px;">
+    <label for="categoryFilter">Category:</label>
+    <select id="categoryFilter" onchange="filterQuotes()">
+      <option value="all">All Categories</option>
+    </select>
 
-  <select id="categoryFilter" onchange="filterQuotes()">
-    <option value="all">All Categories</option>
-  </select>
-
-  <div id="controls">
     <button id="newQuote">Show New Quote</button>
     <button id="exportQuotes">Export Quotes</button>
     <button id="importQuotes">Import Quotes</button>
+    <button id="syncNow">Sync Now</button>
   </div>
 
-  
   <input type="file" id="importFile" accept=".json,application/json" style="display:none" />
 
+  <!-- Inline add-quote form -->
+  <div id="addQuoteForm" style="margin-top:12px;"></div>
 
-  <div id="addQuoteForm"></div>
+  <!-- Conflict modal (hidden) -->
+  <div id="conflictModal" style="display:none; position:fixed; left:10%; right:10%; top:10%; bottom:10%; background:white; border:1px solid #ccc; padding:12px; overflow:auto; z-index:1000;">
+    <h3>Conflicts detected</h3>
+    <div id="conflictList" style="margin-bottom:12px;"></div>
+    <button id="acceptAllServer">Accept All Server Changes</button>
+    <button id="rejectAllServer" style="margin-left:8px;">Keep Local (reject server)</button>
+    <button id="closeConflictModal" style="float:right;">Close</button>
+  </div>
 
   <script src="script.js"></script>
 </body>
 </html>
+
