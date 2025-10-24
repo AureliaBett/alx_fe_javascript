@@ -14,10 +14,10 @@ function showRandomQuote(){
   const randomQuote = StoredQuotes[randomIndex];
   quoteDisplay.innerHTML = randomQuote.text +"--" +randomQuote.category;
 }
-document.getElementById("newQuote").addEventListener("click", ShowRandomQuote)
+document.getElementById("newQuote").addEventListener("click", showRandomQuote)
 
 
-function AddQuote(){
+function createAddQuoteForm(){
   const newQuoteText = document.createElement('input');
   newQuoteText.id = "newQuoteText";
   newQuoteText.type = "text";
@@ -37,4 +37,4 @@ function AddQuote(){
 
 
 }
-AddQuote()
+createAddQuoteForm()
