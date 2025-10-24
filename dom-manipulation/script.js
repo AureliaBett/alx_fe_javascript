@@ -9,7 +9,7 @@ const StoredQuotes =[
 const quoteDisplay = document.getElementById("quoteDisplay");
 
 
-function ShowRandomQuote(){
+function showRandomQuote(){
   const randomIndex = Math.floor(Math.random() * StoredQuotes.length);
   const randomQuote = StoredQuotes[randomIndex];
   quoteDisplay.innerHTML = randomQuote.text +"--" +randomQuote.category;
