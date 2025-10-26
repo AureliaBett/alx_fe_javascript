@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Dynamic Quote Generator</title>
+  <title>Dynamic Quote Generator — Sync Demo</title>
   <style>
-    body { font-family: system-ui, -apple-system, Roboto, "Segoe UI", Arial; padding: 18px; max-width: 920px; margin: auto; }
+    body { font-family: system-ui, -apple-system, Roboto, "Segoe UI", Arial; padding: 18px; max-width: 980px; margin: auto; }
     #quoteDisplay { margin: 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd; min-height: 48px; }
     .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
     .form-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
@@ -15,19 +15,25 @@
     .quote-item { padding:6px 0; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; gap:8px; align-items:center; }
     .quote-text { flex:1; }
     .small { font-size:12px; color:#666; }
+    .status { margin-left:8px; font-size:13px; color:#444; }
+    .conflict-badge { background:#ffefc0; border-radius:6px; padding:4px 8px; font-size:12px; }
+    /* conflict panel */
+    #conflictPanel { position:fixed; right:16px; bottom:16px; width:360px; max-height:60vh; overflow:auto; background:#fff; box-shadow:0 6px 20px rgba(0,0,0,0.12); border-radius:8px; padding:12px; display:none; z-index:2000;}
+    #conflictPanel h3 { margin:0 0 8px 0; font-size:16px; }
+    .conflict-item { border:1px solid #f0d0d0; padding:8px; margin-bottom:8px; border-radius:6px; }
+    .conflict-buttons { display:flex; gap:8px; margin-top:6px; }
+    .muted { color:#666; font-size:12px; }
   </style>
 </head>
 <body>
-  <h1>Dynamic Quote Generator</h1>
+  <h1>Dynamic Quote Generator — Sync Demo</h1>
 
   <div class="controls">
     <button id="newQuote">Show New Quote</button>
 
     <label for="categoryFilter">Filter:</label>
-    <!-- inline onchange to match your requested HTML step; JS also wires event listener on load -->
     <select id="categoryFilter" onchange="filterQuotes()">
       <option value="all">All Categories</option>
-      <!-- dynamically populated -->
     </select>
 
     <button id="exportBtn">Export Quotes (JSON)</button>
@@ -35,7 +41,19 @@
       Import (JSON)
       <input id="importFile" type="file" accept=".json,application/json" style="display:inline-block" />
     </label>
+
+    <button id="addQuoteBtnMobile" style="display:none">Add</button>
+
     <button id="clearBtn" title="Clear all quotes from localStorage and reset to defaults">Reset to Defaults</button>
+
+    <!-- Sync controls -->
+    <div style="margin-left: auto; display:flex; gap:8px; align-items:center;">
+      <button id="syncNowBtn">Sync Now</button>
+      <label class="muted">Auto-sync</label>
+      <input id="autoSyncToggle" type="checkbox" checked/>
+      <div id="syncStatus" class="status">Last sync: never</div>
+      <div id="conflictCount" class="conflict-badge" style="display:none">0 conflicts</div>
+    </div>
   </div>
 
   <div id="quoteDisplay" aria-live="polite">No quote shown yet.</div>
@@ -51,11 +69,20 @@
 
   <section id="quotesList" aria-live="polite">
     <h2>Stored quotes</h2>
-    <div id="quotesContainer" class="quotes-container">
-      <!-- JS will populate -->
-    </div>
+    <div id="quotesContainer" class="quotes-container"></div>
   </section>
+
+  <!-- Conflict panel (hidden by default, shown when conflicts exist) -->
+  <div id="conflictPanel" role="dialog" aria-modal="false">
+    <h3>Conflicts</h3>
+    <div id="conflictList"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+      <button id="closeConflicts">Close</button>
+      <button id="resolveAllServer">Accept all server changes</button>
+    </div>
+  </div>
 
   <script src="script.js"></script>
 </body>
 </html>
+
