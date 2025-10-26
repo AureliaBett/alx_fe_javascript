@@ -5,7 +5,7 @@
 
 /* ========= POST / push-local logic (append to your script) ========= */
 
-const SERVER_BASE = "https://jsonplaceholder.typicode.com"; // mock API base
+const SERVER_BASE = "https://jsonplaceholder.typicode.com/posts"; // mock API base
 
 // Post a single local quote to the mock server and update localQuote.remoteId on success
 async function postQuoteToServer(localQuote) {
