@@ -327,3 +327,4 @@ window.addEventListener("DOMContentLoaded", () => {
   // the select already has inline onchange="filterQuotes()" — add event listener for robustness
   if (categoryFilter) categoryFilter.addEventListener("change", filterQuotes);
 });
+
