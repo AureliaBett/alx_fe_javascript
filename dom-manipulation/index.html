@@ -1,14 +1,53 @@
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Quote Generator</title>
-  </head>
-  <body>
-    <h1>Dynamic Quote Generator</h1>
-    <div id="quoteDisplay"></div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dynamic Quote Generator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, "Segoe UI", Arial; padding: 18px; max-width: 820px; margin: auto; }
+    #quoteDisplay { margin: 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd; min-height: 48px; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .form-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    input[type="text"] { padding:6px 8px; font-size:14px; }
+    button { padding:6px 10px; font-size:14px; cursor:pointer; }
+    #quotesList { margin-top:12px; border-top:1px dashed #eee; padding-top:10px; }
+    .quote-item { padding:6px 0; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .quote-text { flex:1; }
+    .small { font-size:12px; color:#666; }
+  </style>
+</head>
+<body>
+  <h1>Dynamic Quote Generator</h1>
+
+  <div class="controls">
     <button id="newQuote">Show New Quote</button>
-    <script src="script.js"></script>
-  </body>
-  </html>
+    <button id="exportBtn">Export Quotes (JSON)</button>
+    <label style="display:inline-flex; align-items:center; gap:8px;">
+      Import (JSON)
+      <input id="importFile" type="file" accept=".json,application/json" style="display:inline-block" />
+    </label>
+    <button id="clearBtn" title="Clear all quotes from localStorage and reset to defaults">Reset to Defaults</button>
+  </div>
+
+  <div id="quoteDisplay" aria-live="polite">No quote shown yet.</div>
+
+  <section aria-labelledby="addQuoteHeading">
+    <h2 id="addQuoteHeading">Add a Quote</h2>
+    <div class="form-row">
+      <input id="newQuoteText" type="text" placeholder="Enter the quote text" style="flex:1"/>
+      <input id="newQuoteCategory" type="text" placeholder="Enter category (optional)" style="width:140px"/>
+      <button id="addQuoteBtn">Add Quote</button>
+    </div>
+  </section>
+
+  <section id="quotesList" aria-live="polite">
+    <h2>Stored quotes</h2>
+    <div id="quotesContainer" class="quotes-container">
+      <!-- JS will populate -->
+    </div>
+  </section>
+
+  <script src="script.js"></script>
+</body>
+</html>
