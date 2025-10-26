@@ -3,95 +3,100 @@
    SERVER SYNC FUNCTIONALITY
    =============================== */
 
-// Mock server API endpoint (using JSONPlaceholder for simulation)
-const SERVER_URL = "https://jsonplaceholder.typicode.com/posts";
+/* ========= POST / push-local logic (append to your script) ========= */
 
-// Function: Fetch quotes from server (simulated)
-async function fetchQuotesFromServer() {
+const SERVER_BASE = "https://jsonplaceholder.typicode.com"; // mock API base
+
+// Post a single local quote to the mock server and update localQuote.remoteId on success
+async function postQuoteToServer(localQuote) {
   try {
-    console.log("Fetching quotes from server...");
-    const response = await fetch(SERVER_URL);
-    if (!response.ok) throw new Error("Failed to fetch from server");
+    const payload = {
+      title: (localQuote.text || "").slice(0, 80) || "quote",
+      body: localQuote.text || "",
+      // use numeric userId if category is numeric, otherwise default 1
+      userId: (localQuote.category && !isNaN(Number(localQuote.category))) ? Number(localQuote.category) : 1
+    };
 
-    // Simulate server-provided quotes
-    const data = await response.json();
-    // We'll only take first 5 mock posts and convert them into quote objects
-    const serverQuotes = data.slice(0, 5).map(post => ({
-      text: post.title,
-      category: "Server"
-    }));
-
-    const conflicts = [];
-    const newQuotes = [];
-
-    // Conflict Resolution: server data takes precedence
-    serverQuotes.forEach(serverQuote => {
-      const localMatch = quotes.find(q => q.text === serverQuote.text);
-      if (localMatch) {
-        // If categories differ, note as conflict but replace with server’s data
-        if (localMatch.category !== serverQuote.category) {
-          conflicts.push({ local: localMatch, server: serverQuote });
-        }
-        // Replace local with server version
-        Object.assign(localMatch, serverQuote);
-      } else {
-        // Add new quote from server
-        quotes.push(serverQuote);
-        newQuotes.push(serverQuote);
-      }
+    const resp = await fetch(`${SERVER_BASE}/posts`, {
+      method: "POST",                                   // <- POST
+      headers: { "Content-Type": "application/json" },  // <- Content-Type header
+      body: JSON.stringify(payload)                     // <- JSON.stringify payload
     });
 
-    saveQuotes();
-    populateCategories();
-    renderQuotesList();
-
-    if (conflicts.length > 0 || newQuotes.length > 0) {
-      showSyncNotification(conflicts.length, newQuotes.length);
-    } else {
-      console.log("No new updates from server.");
+    if (!resp.ok) {
+      console.warn("Failed to POST quote to server, status:", resp.status);
+      return null;
     }
 
+    const created = await resp.json();
+    // JSONPlaceholder returns an id (e.g. { id: 101 }), map it into local object
+    if (created && created.id) {
+      localQuote.remoteId = `srv-${created.id}`;
+      localQuote.updatedAt = Date.now();
+      // persist update (assumes saveQuotes() exists in your script)
+      if (typeof saveQuotes === "function") saveQuotes();
+      return localQuote.remoteId;
+    } else {
+      console.warn("Unexpected server response while posting quote:", created);
+      return null;
+    }
   } catch (err) {
-    console.error("Error fetching from server:", err);
+    console.error("Error posting quote to server:", err);
+    return null;
   }
 }
 
-// Function: Show notification when sync happens
-function showSyncNotification(conflicts, newCount) {
-  let message = "Quotes synced with server!";
-  if (newCount > 0) message += ` ${newCount} new quote(s) added.`;
-  if (conflicts > 0) message += ` ${conflicts} conflict(s) resolved (server wins).`;
+// Push all local-only quotes (quotes that lack `remoteId`) to the server
+// Posts are performed sequentially to avoid hammering the mock API.
+async function pushLocalChanges() {
+  try {
+    // guard: ensure `quotes` exists and is an array
+    if (!Array.isArray(window.quotes)) return;
 
-  let note = document.getElementById("syncNote");
-  if (!note) {
-    note = document.createElement("div");
-    note.id = "syncNote";
-    note.style.position = "fixed";
-    note.style.bottom = "12px";
-    note.style.right = "12px";
-    note.style.background = "#4caf50";
-    note.style.color = "#fff";
-    note.style.padding = "10px 16px";
-    note.style.borderRadius = "8px";
-    note.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
-    note.style.zIndex = "1000";
-    document.body.appendChild(note);
+    const localOnly = quotes.filter(q => !q.remoteId);
+    if (!localOnly.length) return;
+
+    for (const q of localOnly) {
+      // optional: show some console debug info
+      console.log("Pushing local quote to server:", q.text);
+      await postQuoteToServer(q);
+      // small delay could be added here if you want to throttle
+      // await new Promise(r=>setTimeout(r, 120));
+    }
+    // After push, re-render UI if functions are available
+    if (typeof populateCategories === "function") populateCategories();
+    if (typeof renderQuotesList === "function") renderQuotesList();
+  } catch (err) {
+    console.error("Error pushing local changes:", err);
   }
-  note.textContent = message;
-  setTimeout(() => note.remove(), 4000);
 }
 
-// Add a manual "Sync Now" button (optional)
+/* Hook pushLocalChanges into existing sync behavior:
+   - Make "Sync Now" trigger pushLocalChanges() first then fetchQuotesFromServer()
+   - Make automatic interval call pushLocalChanges() before fetch
+   We add an extra DOMContentLoaded listener so we don't alter your existing listener block.
+*/
+
 window.addEventListener("DOMContentLoaded", () => {
-  const controls = document.querySelector(".controls");
-  if (controls && !document.getElementById("syncBtn")) {
-    const syncBtn = document.createElement("button");
-    syncBtn.id = "syncBtn";
-    syncBtn.textContent = "Sync Now";
-    syncBtn.addEventListener("click", fetchQuotesFromServer);
-    controls.appendChild(syncBtn);
+  // If a Sync Now button exists (we created it earlier), override its click to push then fetch.
+  const syncBtn = document.getElementById("syncBtn") || document.getElementById("syncNowBtn");
+  if (syncBtn) {
+    // remove previous listener(s) if any, then attach our combined handler
+    syncBtn.replaceWith(syncBtn.cloneNode(true));
+    const newBtn = document.getElementById("syncBtn") || document.getElementById("syncNowBtn");
+    if (newBtn) {
+      newBtn.addEventListener("click", async () => {
+        await pushLocalChanges();
+        if (typeof fetchQuotesFromServer === "function") await fetchQuotesFromServer();
+      });
+    }
   }
 
-  // Automatic sync every 30 seconds
-  setInterval(fetchQuotesFromServer, 30000);
+  // Replace your interval with one that pushes first then fetches.
+  // Find existing interval usage — since you setInterval(fetchQuotesFromServer, 30000),
+  // we'll create our own interval to run pushLocalChanges() then fetchQuotesFromServer().
+  setInterval(async () => {
+    await pushLocalChanges();
+    if (typeof fetchQuotesFromServer === "function") await fetchQuotesFromServer();
+  }, 30000);
 });
