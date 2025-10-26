@@ -1,11 +1,12 @@
-// script.js - Dynamic Quote Generator with localStorage/sessionStorage + JSON import/export
+// script.js - Dynamic Quote Generator with category filter persisted to localStorage
 
-const LOCAL_KEY = "quotes_data";          // localStorage key
-const SESSION_LAST_INDEX = "last_viewed_index"; // sessionStorage key for last shown quote
+const LOCAL_KEY = "quotes_data";                 // localStorage key for quotes array
+const SESSION_LAST_INDEX = "last_viewed_index";  // sessionStorage key for last viewed quote index
+const SELECTED_CATEGORY_KEY = "quotes_selected_category"; // localStorage key for last selected category filter
 
 let quotes = [];
 
-// Utility: default quotes
+// Default quotes
 function defaultQuotes() {
   return [
     { text: "This is my first quote", category: "1" },
@@ -35,7 +36,6 @@ function loadQuotes() {
         quotes = parsed;
         return;
       }
-      // If stored data not array, fall through to defaults
     } catch (err) {
       console.warn("Could not parse stored quotes, resetting to defaults:", err);
     }
@@ -44,7 +44,59 @@ function loadQuotes() {
   saveQuotes();
 }
 
-// Show a specific quote by index
+// Helper: escape HTML in strings before injecting into innerHTML
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// --- Category utilities
+
+// Return array of unique category strings present in quotes (empty category becomes "(none)")
+function getUniqueCategories() {
+  const set = new Set();
+  quotes.forEach(q => {
+    const cat = (q.category === undefined || q.category === null || String(q.category).trim() === "") ? "(none)" : String(q.category);
+    set.add(cat);
+  });
+  return Array.from(set).sort((a,b) => a.localeCompare(b));
+}
+
+// Populate #categoryFilter dropdown from quotes
+function populateCategories() {
+  const select = document.getElementById("categoryFilter");
+  if (!select) return;
+  // preserve current chosen value (if any)
+  const current = localStorage.getItem(SELECTED_CATEGORY_KEY) || select.value || "all";
+
+  // clear all options and add the "All" option
+  select.innerHTML = "";
+  const allOpt = document.createElement("option");
+  allOpt.value = "all";
+  allOpt.textContent = "All Categories";
+  select.appendChild(allOpt);
+
+  const categories = getUniqueCategories();
+  categories.forEach(cat => {
+    const opt = document.createElement("option");
+    opt.value = cat;
+    opt.textContent = cat === "(none)" ? "(no category)" : cat;
+    select.appendChild(opt);
+  });
+
+  // restore previously selected category if still available, otherwise default to "all"
+  const availableValues = ["all", ...categories];
+  const restored = (current && availableValues.includes(current)) ? current : "all";
+  select.value = restored;
+  // persist restored selection (this ensures a value is stored in localStorage)
+  localStorage.setItem(SELECTED_CATEGORY_KEY, restored);
+}
+
+// --- Display / filtering logic
+
+// Show a specific quote by index (unfiltered index into quotes array)
 function showQuoteByIndex(index) {
   const display = document.getElementById("quoteDisplay");
   if (!quotes.length) {
@@ -53,16 +105,13 @@ function showQuoteByIndex(index) {
   }
   const idx = Math.max(0, Math.min(index, quotes.length - 1));
   const q = quotes[idx];
-  display.innerHTML = `<div class="quote-text">${escapeHtml(q.text)}</div><div class="small">Category: ${escapeHtml(String(q.category || ""))} — index ${idx}</div>`;
-  // store last viewed in sessionStorage
+  display.innerHTML = `<div class="quote-text">${escapeHtml(q.text)}</div><div class="small">Category: ${escapeHtml(String(q.category || "(none)"))} — index ${idx}</div>`;
   try {
     sessionStorage.setItem(SESSION_LAST_INDEX, String(idx));
-  } catch (err) {
-    console.warn("sessionStorage unavailable:", err);
-  }
+  } catch (err) { console.warn("sessionStorage unavailable:", err); }
 }
 
-// Show a random quote
+// Create and show a random quote (no filter applied to random selection)
 function showRandomQuote() {
   if (!quotes.length) {
     document.getElementById("quoteDisplay").textContent = "No quotes available.";
@@ -72,7 +121,7 @@ function showRandomQuote() {
   showQuoteByIndex(randomIndex);
 }
 
-// Populate the stored quotes list on the page
+// Render list of stored quotes, optionally filtered by category
 function renderQuotesList() {
   const container = document.getElementById("quotesContainer");
   container.innerHTML = "";
@@ -80,53 +129,93 @@ function renderQuotesList() {
     container.textContent = "No stored quotes.";
     return;
   }
-  quotes.forEach((q, i) => {
-    const item = document.createElement("div");
-    item.className = "quote-item";
+
+  const selectedCategory = localStorage.getItem(SELECTED_CATEGORY_KEY) || "all";
+
+  // build an array of indices to display (we need original indices for Show/Delete actions)
+  const toDisplay = [];
+  quotes.forEach((q, idx) => {
+    const cat = (q.category === undefined || q.category === null || String(q.category).trim() === "") ? "(none)" : String(q.category);
+    if (selectedCategory === "all" || selectedCategory === cat) {
+      toDisplay.push({ q, idx, cat });
+    }
+  });
+
+  if (toDisplay.length === 0) {
+    container.textContent = `No quotes for category '${selectedCategory}'.`;
+    return;
+  }
+
+  toDisplay.forEach(item => {
+    const { q, idx } = item;
+    const itemDiv = document.createElement("div");
+    itemDiv.className = "quote-item";
+
     const left = document.createElement("div");
     left.className = "quote-text";
-    left.innerHTML = `<strong>${escapeHtml(q.text)}</strong><div class="small">Category: ${escapeHtml(String(q.category || ""))}</div>`;
+    left.innerHTML = `<strong>${escapeHtml(q.text)}</strong><div class="small">Category: ${escapeHtml(String(q.category || "(none)"))}</div>`;
+
     const right = document.createElement("div");
     right.style.display = "flex";
     right.style.gap = "6px";
+
     const showBtn = document.createElement("button");
     showBtn.textContent = "Show";
-    showBtn.addEventListener("click", () => showQuoteByIndex(i));
+    showBtn.addEventListener("click", () => showQuoteByIndex(idx));
+
     const delBtn = document.createElement("button");
     delBtn.textContent = "Delete";
     delBtn.addEventListener("click", () => {
       if (!confirm("Delete this quote?")) return;
-      quotes.splice(i, 1);
+      quotes.splice(idx, 1);
       saveQuotes();
+      // after deletion we must repopulate categories and re-render list
+      populateCategories();
       renderQuotesList();
-      // If we deleted the last viewed index, clear it
+      // adjust last viewed index stored in sessionStorage if needed
       const storedIndex = sessionStorage.getItem(SESSION_LAST_INDEX);
-      if (storedIndex !== null && Number(storedIndex) === i) {
+      if (storedIndex !== null && Number(storedIndex) === idx) {
         sessionStorage.removeItem(SESSION_LAST_INDEX);
       }
     });
+
     right.appendChild(showBtn);
     right.appendChild(delBtn);
 
-    item.appendChild(left);
-    item.appendChild(right);
-    container.appendChild(item);
+    itemDiv.appendChild(left);
+    itemDiv.appendChild(right);
+    container.appendChild(itemDiv);
   });
 }
 
-// Add a new quote from inputs
+// Called when user changes the category filter dropdown; persists selection and updates list
+function filterQuotes() {
+  const select = document.getElementById("categoryFilter");
+  if (!select) return;
+  const selected = select.value;
+  localStorage.setItem(SELECTED_CATEGORY_KEY, selected);
+  renderQuotesList();
+}
+
+// Add a new quote from the input fields; also updates categories and persists everything
 function addQuoteFromInputs() {
   const textInput = document.getElementById("newQuoteText");
   const categoryInput = document.getElementById("newQuoteCategory");
   const text = (textInput.value || "").trim();
-  const category = (categoryInput.value || "").trim();
+  let category = (categoryInput.value || "").trim();
   if (!text) {
     alert("Please enter quote text.");
     return;
   }
+  // normalize empty category to empty string (rendering will show "(no category)")
+  if (category === "") category = "";
   quotes.push({ text, category });
   saveQuotes();
+  // update categories dropdown in case the new category is new
+  populateCategories();
+  // after populating categories, ensure the current selected category (if matches new) remains selected
   renderQuotesList();
+  // clear inputs
   textInput.value = "";
   categoryInput.value = "";
 }
@@ -151,7 +240,7 @@ function exportQuotes() {
   }
 }
 
-// Import quotes from uploaded JSON file
+// Import quotes from uploaded JSON file (replaces current quotes). Then update categories and UI.
 function importQuotesFile(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -162,15 +251,14 @@ function importQuotesFile(file) {
         alert("Imported file must be a JSON array of quote objects.");
         return;
       }
-      // Basic validation: each item should have a text property
       const validated = parsed.filter(item => item && typeof item.text === "string");
       if (!validated.length) {
         alert("No valid quotes found in file (expected objects with a 'text' string).");
         return;
       }
-      // Replace current quotes with imported ones
       quotes = validated.map(item => ({ text: String(item.text), category: item.category ?? "" }));
       saveQuotes();
+      populateCategories();
       renderQuotesList();
       alert(`Imported ${quotes.length} quote(s).`);
     } catch (err) {
@@ -190,37 +278,34 @@ function resetToDefaults() {
   if (!confirm("Reset quotes to default set? This will overwrite current stored quotes.")) return;
   quotes = defaultQuotes();
   saveQuotes();
+  populateCategories();
   renderQuotesList();
   document.getElementById("quoteDisplay").textContent = "Reset to default quotes.";
   sessionStorage.removeItem(SESSION_LAST_INDEX);
-}
-
-// Small helper to escape HTML (to avoid injection in innerHTML)
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  localStorage.removeItem(SELECTED_CATEGORY_KEY);
 }
 
 // --- Initialize UI and events
 window.addEventListener("DOMContentLoaded", () => {
-  // DOM elements
   const newQuoteBtn = document.getElementById("newQuote");
   const exportBtn = document.getElementById("exportBtn");
   const importFile = document.getElementById("importFile");
   const addQuoteBtn = document.getElementById("addQuoteBtn");
   const clearBtn = document.getElementById("clearBtn");
+  const categoryFilter = document.getElementById("categoryFilter");
 
-  // Load quotes
   loadQuotes();
+  populateCategories();
   renderQuotesList();
 
-  // If sessionStorage has last viewed index, show that quote (session demo)
+  // If sessionStorage has last viewed index, show that quote
   const lastIdx = sessionStorage.getItem(SESSION_LAST_INDEX);
-  if (lastIdx !== null && !isNaN(Number(lastIdx))) {
+  if (lastIdx !== null && !isNaN(Number(lastIdx)) && quotes[Number(lastIdx)]) {
     showQuoteByIndex(Number(lastIdx));
   }
+
+  // restore selected category and re-render list (populateCategories already stored it)
+  renderQuotesList();
 
   // Events
   newQuoteBtn.addEventListener("click", showRandomQuote);
@@ -237,4 +322,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   clearBtn.addEventListener("click", resetToDefaults);
+
+  // category filter change -> filterQuotes behavior
+  // the select already has inline onchange="filterQuotes()" — add event listener for robustness
+  if (categoryFilter) categoryFilter.addEventListener("change", filterQuotes);
 });
